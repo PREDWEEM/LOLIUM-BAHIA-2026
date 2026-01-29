@@ -244,7 +244,7 @@ if df is not None and modelo_ann is not None:
     # -----------------------------------------------------
     # VISUALIZACIÓN
     # -----------------------------------------------------
-    st.title("🌾 PREDWEEM LOLIUM TRES ARROYOS 2026")
+    st.title("🌾 PREDWEEM LOLIUM- BAHIA BLANCA 2026")
 
     # Heatmap de Intensidad (Cabecera)
     colorscale_hard = [[0.0, "green"], [0.49, "green"], [0.49, "yellow"], [0.90, "yellow"], [0.90, "red"], [1.0, "red"]]
