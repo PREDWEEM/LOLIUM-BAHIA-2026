@@ -234,7 +234,7 @@ if df is not None and modelo_ann is not None:
     # -----------------------------------------------------
     # VISUALIZACIÓN
     # -----------------------------------------------------
-    st.title("🌾 PREDWEEM LOLIUM- BALCARCE 2026")
+    st.title("🌾 PREDWEEM LOLIUM- BAHIA BLANCA 2026")
 
     # --- GRÁFICO DE CALOR (HEATMAP) ---
     colorscale_hard = [[0.0, "green"], [0.24, "green"], [0.25, "yellow"], [0.74, "yellow"], [0.75, "red"], [1.0, "red"]]
