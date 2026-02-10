@@ -296,42 +296,49 @@ if df is not None and modelo_ann is not None:
             else:
                 st.warning(f"⏳ Esperando el primer pico de emergencia (Tasa diaria >= {umbral_er}).")
 
+
+
+
         
         with col_gauge:
-            # 1. Identificar la fecha de "hoy" (10 de febrero de 2026 según sistema)
+            # 1. Sincronización de fechas (Hoy es 10 de Feb 2026)
             fecha_hoy = pd.Timestamp.now().normalize() 
-            
-            # Validación: Si hoy no está en el CSV, usamos la última fecha del archivo como "hoy"
             if fecha_hoy not in df['Fecha'].values:
                 fecha_hoy = df['Fecha'].max()
 
-            # 2. Inicialización de variables
+            # 2. Definir el periodo total de análisis (Desde el inicio hasta Hoy + 7 días)
+            idx_hoy = df[df["Fecha"] == fecha_hoy].index[0]
+            df_periodo_total = df.iloc[:idx_hoy + 8].copy() # Todo hasta hoy + 7 días
+            
+            # 3. Buscar el primer pico dentro de este periodo extendido
+            indices_pico = df_periodo_total.index[df_periodo_total["EMERREL"] >= umbral_er].tolist()
+            
             dga_hoy = 0.0
             dga_7dias = 0.0
-            hubo_pico = False
+            msg_estado = "Esperando pico..."
 
-            # 3. Lógica Condicional: ¿Ya ocurrió el primer pico?
-            # Buscamos el primer índice donde la emergencia superó el umbral
-            indices_pico = df.index[df["EMERREL"] >= umbral_er].tolist()
-            
             if indices_pico:
-                hubo_pico = True
                 idx_primer_pico = indices_pico[0]
-                fecha_inicio = df.loc[idx_primer_pico, "Fecha"]
+                fecha_inicio_pico = df.loc[idx_primer_pico, "Fecha"]
                 
-                # --- CÁLCULO TT AL DÍA DE HOY ---
-                df_hasta_hoy = df[(df["Fecha"] >= fecha_inicio) & (df["Fecha"] <= fecha_hoy)]
-                dga_hoy = df_hasta_hoy["DG"].sum()
+                # --- CASO A: El pico ya ocurrió (o es hoy) ---
+                if fecha_inicio_pico <= fecha_hoy:
+                    # Acumulado hasta hoy
+                    df_hasta_hoy = df[(df["Fecha"] >= fecha_inicio_pico) & (df["Fecha"] <= fecha_hoy)]
+                    dga_hoy = df_hasta_hoy["DG"].sum()
+                    
+                    # Acumulado total incluyendo los 7 días futuros
+                    df_pronostico = df.iloc[idx_hoy + 1 : idx_hoy + 8]
+                    dga_7dias = dga_hoy + df_pronostico["DG"].sum()
+                    msg_estado = f"Pico detectado el {fecha_inicio_pico.strftime('%d/%m')}"
                 
-                # --- CÁLCULO TT PRONÓSTICO (Siguientes 7 días del archivo) ---
-                idx_hoy = df[df["Fecha"] == fecha_hoy].index[0]
-                df_pronostico = df.iloc[idx_hoy + 1 : idx_hoy + 8]
-                dga_7dias = dga_hoy + df_pronostico["DG"].sum()
-                dias_futuros = len(df_pronostico)
-            else:
-                # Si no hay pico, dga_hoy y dga_7dias se mantienen en 0.0
-                fecha_inicio = None
-                dias_futuros = 0
+                # --- CASO B: El pico ocurrirá en los próximos 7 días ---
+                else:
+                    dga_hoy = 0.0 # Aún no acumulamos nada al día de hoy
+                    # Empezamos a sumar solo desde la fecha del pico futuro hasta el final de la semana
+                    df_futuro_post_pico = df[(df["Fecha"] >= fecha_inicio_pico) & (df.index <= idx_hoy + 7)]
+                    dga_7dias = df_futuro_post_pico["DG"].sum()
+                    msg_estado = f"⚠️ Pico previsto para el {fecha_inicio_pico.strftime('%d/%m')}"
 
             # --- RENDERIZADO DEL GAUGE ---
             max_axis = dga_critico * 1.2
@@ -341,12 +348,9 @@ if df is not None and modelo_ann is not None:
                 mode = "gauge+number", 
                 value = dga_hoy,
                 domain = {'x': [0, 1], 'y': [0, 1]},
-                title = {
-                    'text': f"<b>TT ACUMULADO (°Cd)</b><br><span style='font-size:0.8em;color:gray'>Ref: {fecha_hoy.strftime('%d-%m-%Y')}</span>",
-                    'font': {'size': 18}
-                },
+                title = {'text': f"<b>TT ACUMULADO (°Cd)</b>", 'font': {'size': 18}},
                 gauge = {
-                    'axis': {'range': [None, max_axis], 'tickwidth': 1},
+                    'axis': {'range': [None, max_axis]},
                     'bar': {'color': "#1e293b", 'thickness': 0.3},
                     'steps': [
                         {'range': [0, dga_optimo], 'color': "#4ade80"},
@@ -354,31 +358,23 @@ if df is not None and modelo_ann is not None:
                         {'range': [dga_critico, max_axis], 'color': "#f87171"}
                     ],
                     'threshold': {
-                        'line': {'color': "#2563eb", 'width': 6}, # Marcador azul proyección
+                        'line': {'color': "#2563eb", 'width': 6}, # Marcador azul
                         'thickness': 0.8,
                         'value': dga_7dias
                     }
                 }
             ))
 
-            # Anotaciones dinámicas según el estado del pico
-            if hubo_pico:
-                txt_footer = f"Inició el {fecha_inicio.strftime('%d/%m')}<br>Proyección +7d: <b>{dga_7dias:.1f} °Cd</b>"
-            else:
-                txt_footer = f"<span style='color:red'>⚠️ Esperando Pico de Emergencia<br>(Umbral: {umbral_er})</span>"
-
             fig_gauge.add_annotation(
-                x=0.5, y=-0.15,
-                text=txt_footer,
-                showarrow=False,
-                font=dict(size=14),
-                align="center"
+                x=0.5, y=-0.1,
+                text=f"{msg_estado}<br>Pronóstico +7d: <b>{dga_7dias:.1f} °Cd</b>",
+                showarrow=False, font=dict(size=14, color="#1e3a8a"), align="center"
             )
 
-            fig_gauge.update_layout(height=350, margin=dict(t=80, b=60, l=30, r=30))
+            fig_gauge.update_layout(height=350, margin=dict(t=80, b=50, l=30, r=30))
             st.plotly_chart(fig_gauge, use_container_width=True)
-               
         
+                  
                    
     # --- TAB 2: ANÁLISIS ---
     with tab2:
