@@ -298,30 +298,40 @@ if df is not None and modelo_ann is not None:
 
         
         with col_gauge:
-            # 1. Sincronización con la fecha actual del sistema
+            # 1. Identificar la fecha de "hoy" (10 de febrero de 2026 según sistema)
             fecha_hoy = pd.Timestamp.now().normalize() 
             
-            # Si la fecha de hoy no está en el CSV (ej. datos históricos), 
-            # tomamos una fecha intermedia o la última para que el ejemplo funcione
+            # Validación: Si hoy no está en el CSV, usamos la última fecha del archivo como "hoy"
             if fecha_hoy not in df['Fecha'].values:
-                fecha_hoy = df['Fecha'].iloc[len(df)//2] # Punto medio por defecto si no hay match
+                fecha_hoy = df['Fecha'].max()
 
-            if fecha_inicio_ventana:
-                # --- CÁLCULO TT AL DÍA DE LA FECHA ---
-                df_hasta_hoy = df[(df["Fecha"] >= fecha_inicio_ventana) & (df["Fecha"] <= fecha_hoy)]
+            # 2. Inicialización de variables
+            dga_hoy = 0.0
+            dga_7dias = 0.0
+            hubo_pico = False
+
+            # 3. Lógica Condicional: ¿Ya ocurrió el primer pico?
+            # Buscamos el primer índice donde la emergencia superó el umbral
+            indices_pico = df.index[df["EMERREL"] >= umbral_er].tolist()
+            
+            if indices_pico:
+                hubo_pico = True
+                idx_primer_pico = indices_pico[0]
+                fecha_inicio = df.loc[idx_primer_pico, "Fecha"]
+                
+                # --- CÁLCULO TT AL DÍA DE HOY ---
+                df_hasta_hoy = df[(df["Fecha"] >= fecha_inicio) & (df["Fecha"] <= fecha_hoy)]
                 dga_hoy = df_hasta_hoy["DG"].sum()
                 
-                # --- CÁLCULO TT PROYECTADO (7 días reales del CSV) ---
-                # Localizamos la posición de "hoy" y tomamos las 7 filas siguientes
-                try:
-                    idx_hoy = df[df["Fecha"] == fecha_hoy].index[0]
-                    df_pronostico = df.iloc[idx_hoy + 1 : idx_hoy + 8]
-                    sum_futura = df_pronostico["DG"].sum()
-                    dga_7dias = dga_hoy + sum_futura
-                    conteo_dias = len(df_pronostico)
-                except IndexError:
-                    dga_7dias = dga_hoy
-                    conteo_dias = 0
+                # --- CÁLCULO TT PRONÓSTICO (Siguientes 7 días del archivo) ---
+                idx_hoy = df[df["Fecha"] == fecha_hoy].index[0]
+                df_pronostico = df.iloc[idx_hoy + 1 : idx_hoy + 8]
+                dga_7dias = dga_hoy + df_pronostico["DG"].sum()
+                dias_futuros = len(df_pronostico)
+            else:
+                # Si no hay pico, dga_hoy y dga_7dias se mantienen en 0.0
+                fecha_inicio = None
+                dias_futuros = 0
 
             # --- RENDERIZADO DEL GAUGE ---
             max_axis = dga_critico * 1.2
@@ -332,42 +342,44 @@ if df is not None and modelo_ann is not None:
                 value = dga_hoy,
                 domain = {'x': [0, 1], 'y': [0, 1]},
                 title = {
-                    'text': f"<b>TT ACUMULADO (°Cd)</b><br><span style='font-size:0.8em;color:gray'>Corte: {fecha_hoy.strftime('%d-%m-%Y')}</span>",
+                    'text': f"<b>TT ACUMULADO (°Cd)</b><br><span style='font-size:0.8em;color:gray'>Ref: {fecha_hoy.strftime('%d-%m-%Y')}</span>",
                     'font': {'size': 18}
                 },
                 gauge = {
                     'axis': {'range': [None, max_axis], 'tickwidth': 1},
-                    'bar': {'color': "#1e293b", 'thickness': 0.3}, # Progreso actual (Negro)
+                    'bar': {'color': "#1e293b", 'thickness': 0.3},
                     'steps': [
                         {'range': [0, dga_optimo], 'color': "#4ade80"},
                         {'range': [dga_optimo, dga_critico], 'color': "#facc15"},
                         {'range': [dga_critico, max_axis], 'color': "#f87171"}
                     ],
                     'threshold': {
-                        'line': {'color': "#2563eb", 'width': 6}, # Marcador azul (Proyección)
+                        'line': {'color': "#2563eb", 'width': 6}, # Marcador azul proyección
                         'thickness': 0.8,
                         'value': dga_7dias
                     }
                 }
             ))
 
-            # Texto informativo con la lógica aplicada
-            label_futuro = f"Pronóstico a 7 días: <b>{dga_7dias:.1f} °Cd</b>"
-            if conteo_dias < 7:
-                label_futuro += f"<br><small>(Solo {conteo_dias} días disponibles post-fecha)</small>"
+            # Anotaciones dinámicas según el estado del pico
+            if hubo_pico:
+                txt_footer = f"Inició el {fecha_inicio.strftime('%d/%m')}<br>Proyección +7d: <b>{dga_7dias:.1f} °Cd</b>"
+            else:
+                txt_footer = f"<span style='color:red'>⚠️ Esperando Pico de Emergencia<br>(Umbral: {umbral_er})</span>"
 
             fig_gauge.add_annotation(
-                x=0.5, y=-0.1,
-                text=label_futuro,
+                x=0.5, y=-0.15,
+                text=txt_footer,
                 showarrow=False,
-                font=dict(size=14, color="#1e3a8a"),
+                font=dict(size=14),
                 align="center"
             )
 
-            fig_gauge.update_layout(height=350, margin=dict(t=80, b=50, l=30, r=30))
+            fig_gauge.update_layout(height=350, margin=dict(t=80, b=60, l=30, r=30))
             st.plotly_chart(fig_gauge, use_container_width=True)
+               
         
-              
+                   
     # --- TAB 2: ANÁLISIS ---
     with tab2:
         st.header("🔍 Clasificación DTW")
