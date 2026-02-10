@@ -297,9 +297,6 @@ if df is not None and modelo_ann is not None:
                 st.warning(f"⏳ Esperando el primer pico de emergencia (Tasa diaria >= {umbral_er}).")
 
 
-
-
-        
         with col_gauge:
             # 1. Sincronización de fechas (Hoy es 10 de Feb 2026)
             fecha_hoy = pd.Timestamp.now().normalize() 
@@ -373,8 +370,8 @@ if df is not None and modelo_ann is not None:
 
             fig_gauge.update_layout(height=350, margin=dict(t=80, b=50, l=30, r=30))
             st.plotly_chart(fig_gauge, use_container_width=True)
-        
-                  
+               
+    
                    
     # --- TAB 2: ANÁLISIS ---
     with tab2:
