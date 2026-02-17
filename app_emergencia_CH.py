@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM INTEGRAL vK4.2 — LOLIUM TRES ARROYOS 2026
-# Versión Corregida (Hotfix TypeError)
+# 🌾 PREDWEEM INTEGRAL vK4.2.1 — LOLIUM TRES ARROYOS 2026
+# Corrección: TypeError en conversión de float (NumPy item)
 # ===============================================================
 
 import streamlit as st
@@ -17,7 +17,7 @@ from pathlib import Path
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILO
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="PREDWEEM INTEGRAL vK4.2", 
+    page_title="PREDWEEM INTEGRAL vK4.2.1", 
     layout="wide",
     page_icon="🌾"
 )
@@ -27,7 +27,6 @@ st.markdown("""
     .main { background-color: #f8fafc; }
     [data-testid="stSidebar"] { background-color: #dcfce7; border-right: 1px solid #bbf7d0; }
     .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; border: 1px solid #e2e8f0; }
-    .bio-alert { padding: 10px; border-radius: 5px; background-color: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; margin-bottom: 10px; font-size: 0.9em; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -50,16 +49,22 @@ class PracticalANNModel:
         Xn = self.normalize(Xreal)
         emer = []
         for i, x in enumerate(Xn):
+            # A. Predicción Neural
             z1 = self.IW.T @ x + self.bIW
             a1 = np.tanh(z1)
             z2 = self.LW @ a1 + self.bLW
             val_ann = (np.tanh(z2) + 1) / 2
             
+            # B. Lógica Híbrida (Corrección Agronómica vK4.2)
             julian, tmin, prec = Xreal[i, 0], Xreal[i, 2], Xreal[i, 3]
+            
+            # --- CAMBIO CLAVE AQUÍ: Usamos .item() para evitar el TypeError ---
+            val_ann_scalar = val_ann.item() 
+            
             if prec >= 5.0 and julian > 35 and tmin >= 14.0:
-                val_final = max(float(val_ann), 0.85)
+                val_final = max(val_ann_scalar, 0.85)
             else:
-                val_final = float(val_ann)
+                val_final = val_ann_scalar
             emer.append(val_final)
             
         emer = np.array(emer).flatten()
@@ -109,7 +114,7 @@ def load_data(uploaded_file):
 # ---------------------------------------------------------
 modelo_ann = load_assets()
 
-st.sidebar.title("⚙️ PREDWEEM vK4.2")
+st.sidebar.title("⚙️ PREDWEEM vK4.2.1")
 archivo_subido = st.sidebar.file_uploader("Actualizar Clima (opcional)", type=["xlsx", "csv"])
 umbral_er = st.sidebar.slider("Umbral de Pico", 0.10, 0.90, 0.50)
 t_base_val = st.sidebar.number_input("T Base", value=2.0)
@@ -122,14 +127,17 @@ df = load_data(archivo_subido)
 if df is not None and modelo_ann is not None:
     df["Julian_days"] = df["Fecha"].dt.dayofyear
     X = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(float)
+    
+    # Llamada al método corregido
     emerrel, _ = modelo_ann.predict(X)
+    
     df["EMERREL"] = np.maximum(emerrel, 0.0)
     df.loc[df["Julian_days"] <= 25, "EMERREL"] = 0.0 
     
     df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
     df["DG"] = df["Tmedia"].apply(lambda x: calculate_tt_scalar(x, t_base_val, t_opt_max, t_critica))
 
-    st.title("🌾 Dashboard de Emergencia Híbrido")
+    st.title("🌾 Monitor de Emergencia Híbrido")
     
     fig_risk = go.Figure(data=go.Heatmap(
         z=[df["EMERREL"].values], x=df["Fecha"],
@@ -141,7 +149,7 @@ if df is not None and modelo_ann is not None:
     fig = go.Figure()
     fig.add_trace(go.Bar(x=df["Fecha"], y=df["EMERREL"], name="Tasa Diaria", marker_color="#166534"))
     fig.add_hline(y=umbral_er, line_dash="dash", line_color="orange")
-    fig.update_layout(title="Dinámica de Emergencia (vK4.2 Corregida)", height=400)
+    fig.update_layout(title="Dinámica de Emergencia (vK4.2.1)", height=400)
     st.plotly_chart(fig, use_container_width=True)
 
     indices_pico = df.index[df["EMERREL"] >= umbral_er].tolist()
@@ -161,4 +169,4 @@ if df is not None and modelo_ann is not None:
     st.sidebar.download_button("📥 Descargar Reporte", output.getvalue(), "PREDWEEM_Report.xlsx")
 
 else:
-    st.warning("Faltan datos o archivos de modelo (.npy)")
+    st.error("❌ Error: Faltan archivos de modelo (.npy) o datos climáticos.")
