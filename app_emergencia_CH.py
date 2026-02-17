@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ===============================================================
-# 🌾 PREDWEEM INTEGRAL vK4.2.1 — LOLIUM TRES ARROYOS 2026
-# Corrección: TypeError en conversión de float (NumPy item)
+# 🌾 PREDWEEM INTEGRAL vK4.2.2 — LOLIUM TRES ARROYOS 2026
+# Parche de Compatibilidad: Python 3.13 + NumPy Scalar Fix
 # ===============================================================
 
 import streamlit as st
@@ -17,7 +17,7 @@ from pathlib import Path
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILO
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="PREDWEEM INTEGRAL vK4.2.1", 
+    page_title="PREDWEEM INTEGRAL vK4.2.2", 
     layout="wide",
     page_icon="🌾"
 )
@@ -48,18 +48,21 @@ class PracticalANNModel:
     def predict(self, Xreal):
         Xn = self.normalize(Xreal)
         emer = []
-        for i, x in enumerate(Xn):
-            # A. Predicción Neural
+        for i in range(len(Xn)):
+            x = Xn[i]
+            # Cálculo de la Red Neuronal
             z1 = self.IW.T @ x + self.bIW
             a1 = np.tanh(z1)
             z2 = self.LW @ a1 + self.bLW
             val_ann = (np.tanh(z2) + 1) / 2
             
-            # B. Lógica Híbrida (Corrección Agronómica vK4.2)
-            julian, tmin, prec = Xreal[i, 0], Xreal[i, 2], Xreal[i, 3]
+            # --- SOLUCIÓN AL TYPEERROR (LÍNEA 62) ---
+            # np.ravel convierte cualquier forma de resultado en una lista plana
+            # y extraemos el primer valor de forma segura.
+            val_ann_scalar = float(np.ravel(val_ann)[0])
             
-            # --- CAMBIO CLAVE AQUÍ: Usamos .item() para evitar el TypeError ---
-            val_ann_scalar = val_ann.item() 
+            # Lógica Híbrida (Corrección Agronómica vK4.2)
+            julian, tmin, prec = Xreal[i, 0], Xreal[i, 2], Xreal[i, 3]
             
             if prec >= 5.0 and julian > 35 and tmin >= 14.0:
                 val_final = max(val_ann_scalar, 0.85)
@@ -88,7 +91,7 @@ def load_assets():
             np.load(BASE/"LW.npy"), np.load(BASE/"bias_out.npy")
         )
         return ann
-    except:
+    except Exception as e:
         return None
 
 # ---------------------------------------------------------
@@ -114,7 +117,7 @@ def load_data(uploaded_file):
 # ---------------------------------------------------------
 modelo_ann = load_assets()
 
-st.sidebar.title("⚙️ PREDWEEM vK4.2.1")
+st.sidebar.title("⚙️ PREDWEEM vK4.2.2")
 archivo_subido = st.sidebar.file_uploader("Actualizar Clima (opcional)", type=["xlsx", "csv"])
 umbral_er = st.sidebar.slider("Umbral de Pico", 0.10, 0.90, 0.50)
 t_base_val = st.sidebar.number_input("T Base", value=2.0)
@@ -125,10 +128,11 @@ dga_optimo = st.sidebar.number_input("Objetivo Control (°Cd)", value=600)
 df = load_data(archivo_subido)
 
 if df is not None and modelo_ann is not None:
+    # Asegurar tipos numéricos para el motor de cálculo
     df["Julian_days"] = df["Fecha"].dt.dayofyear
-    X = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(float)
+    X = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(dtype=float)
     
-    # Llamada al método corregido
+    # Ejecución segura
     emerrel, _ = modelo_ann.predict(X)
     
     df["EMERREL"] = np.maximum(emerrel, 0.0)
@@ -137,21 +141,23 @@ if df is not None and modelo_ann is not None:
     df["Tmedia"] = (df["TMAX"] + df["TMIN"]) / 2
     df["DG"] = df["Tmedia"].apply(lambda x: calculate_tt_scalar(x, t_base_val, t_opt_max, t_critica))
 
+    # --- DASHBOARD ---
     st.title("🌾 Monitor de Emergencia Híbrido")
     
     fig_risk = go.Figure(data=go.Heatmap(
         z=[df["EMERREL"].values], x=df["Fecha"],
         colorscale=[[0, "green"], [0.5, "yellow"], [1, "red"]], showscale=False
     ))
-    fig_risk.update_layout(height=100, margin=dict(t=20, b=20), title="Intensidad de Nacimientos")
+    fig_risk.update_layout(height=100, margin=dict(t=20, b=20), title="Intensidad de Nacimientos (Modelo Híbrido)")
     st.plotly_chart(fig_risk, use_container_width=True)
 
     fig = go.Figure()
     fig.add_trace(go.Bar(x=df["Fecha"], y=df["EMERREL"], name="Tasa Diaria", marker_color="#166534"))
     fig.add_hline(y=umbral_er, line_dash="dash", line_color="orange")
-    fig.update_layout(title="Dinámica de Emergencia (vK4.2.1)", height=400)
+    fig.update_layout(title="Dinámica de Emergencia (vK4.2.2 - Compatible Python 3.13)", height=400)
     st.plotly_chart(fig, use_container_width=True)
 
+    # Ventana de Seguimiento
     indices_pico = df.index[df["EMERREL"] >= umbral_er].tolist()
     if indices_pico:
         f_inicio = df.loc[indices_pico[0], "Fecha"]
@@ -162,11 +168,13 @@ if df is not None and modelo_ann is not None:
         progreso = min(100.0, (dga_actual / dga_optimo) * 100)
         st.progress(progreso/100)
     else:
-        st.warning("No se detectan picos.")
+        st.warning("No se detectan picos con el umbral actual.")
 
     output = io.BytesIO()
     df.to_excel(output, index=False)
     st.sidebar.download_button("📥 Descargar Reporte", output.getvalue(), "PREDWEEM_Report.xlsx")
 
+elif modelo_ann is None:
+    st.error("❌ No se pudieron cargar los archivos del modelo (.npy). Verifica que IW.npy, LW.npy, etc., estén en la raíz.")
 else:
-    st.error("❌ Error: Faltan archivos de modelo (.npy) o datos climáticos.")
+    st.info("👋 Por favor, sube un archivo meteorológico o asegúrate de que 'meteo_daily.csv' esté presente.")
